@@ -64,6 +64,9 @@ macro_rules! impl_error_chain_processed {
         ///   internals, containing:
         ///   - a backtrace, generated when the error is created.
         ///   - an error chain, used for the implementation of `Error::cause()`.
+        // :bm, 这个地方定义了Custom Error type, error_name 是上边传入的 error_name, 默认值为 `Error`
+        // 这个 Error type 里边是俩类型的struct tuple, Error(ErrorKind, State), ErrorKind 具体的名称也是
+        // error_chain macro 定义的，也有默认值
         #[derive(Debug)]
         pub struct $error_name(
             // The members must be `pub` for `links`.
@@ -74,7 +77,9 @@ macro_rules! impl_error_chain_processed {
             pub $crate::State,
         );
 
-        impl $crate::ChainedError for $error_name {
+        // :bm, $crate::<..>, is syntax that link to lib type defined this this crate. not user crate.
+        // 这个地方实现了 lib.rs 中的 ChainedError trait. 里边用的方法在下面有定义
+        impl $crate::ChainedError for $error_name { 
             type ErrorKind = $error_kind_name;
 
             fn new(kind: $error_kind_name, state: $crate::State) -> $error_name {
@@ -116,6 +121,7 @@ macro_rules! impl_error_chain_processed {
                                     $([$link_error_path, $(#[$meta_links])*])*);
         }
 
+        // :bm, 为Error struct 定义其方法
         #[allow(dead_code)]
         impl $error_name {
             /// Constructs an error from a kind, and generates a backtrace.
@@ -136,6 +142,8 @@ macro_rules! impl_error_chain_processed {
             }
 
             /// Construct a chained error from another boxed error and a kind, and generates a backtrace
+            // :todo, 'static constraint missing in here ? a Box type can remove that?
+            // also, why use Box type in here, I mean in State type as well
             pub fn with_boxed_chain<K>(error: Box<::std::error::Error + Send>, kind: K)
                 -> $error_name
                 where K: Into<$error_kind_name>
@@ -217,11 +225,13 @@ macro_rules! impl_error_chain_processed {
         ) *
 
         $(
+            // :bm, map Foreign Link to internal Error type
             $(#[$meta_foreign_links])*
             impl From<$foreign_link_error_path> for $error_name {
                 fn from(e: $foreign_link_error_path) -> Self {
                     $error_name::from_kind(
-                        $error_kind_name::$foreign_link_variant(e)
+                        // implementation defined in below
+                        $error_kind_name::$foreign_link_variant(e) 
                     )
                 }
             }
@@ -233,6 +243,8 @@ macro_rules! impl_error_chain_processed {
             }
         }
 
+        // :bm, how str is convert to ErrorKind?
+        // there is Msg variant type defined in below, any string is converted to Msg ErrorKind variant
         impl<'a> From<&'a str> for $error_name {
             fn from(s: &'a str) -> Self {
                 $error_name::from_kind(s.into())
@@ -268,6 +280,7 @@ macro_rules! impl_error_chain_processed {
                     }
                 ) *
 
+                // link other Error type to error_chain Error type.
                 $(
                     $(#[$meta_foreign_links])*
                     $foreign_link_variant(err: $foreign_link_error_path) {
@@ -279,7 +292,7 @@ macro_rules! impl_error_chain_processed {
                 $($error_chunks)*
             }
         }
-
+        // implment From for every Entry defined in links node
         $(
             $(#[$meta_links])*
             impl From<$link_kind_path> for $error_kind_name {
@@ -310,6 +323,7 @@ macro_rules! impl_error_chain_processed {
         // The ResultExt trait defines the `chain_err` method.
 
         /// Additional methods for `Result`, for easy interaction with this crate.
+        // bm: 这个 trait 的作用就是扩展 std::result::Result type, 
         pub trait $result_ext_name<T> {
             /// If the `Result` is an `Err` then `chain_err` evaluates the closure,
             /// which returns *some type that can be converted to `ErrorKind`*, boxes
@@ -320,6 +334,8 @@ macro_rules! impl_error_chain_processed {
                       EK: Into<$error_kind_name>;
         }
 
+        // bm: for any std::result::Result type with Error std::error::Error that can be convert to chain_error's Error 
+        // type, you can call chain_err on it.
         impl<T, E> $result_ext_name<T> for ::std::result::Result<T, E> where E: ::std::error::Error + Send + 'static {
             fn chain_err<F, EK>(self, callback: F) -> ::std::result::Result<T, $error_name>
                 where F: FnOnce() -> EK,
